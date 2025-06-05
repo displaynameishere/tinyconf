@@ -1,6 +1,7 @@
-# tinyconf
-Tinyconf is a lightweight text based configuration file editor that supports json, toml, and env-like files.
+# ttiny
+ttiny is a lightweight TUI mode-based text editor for files of all kinds
 ## Features
-* **`.7cfg` support**: Use the same config for recon7 and tinyconf
-* **Small and fast**: Contained in a single file, with a minimal design
-* **Plugin support**: An extensive API is exposed, so plugins can be made to do any task
+### `.7cfg` support
+ttiny implements a lighter, faster modified version of [recon7](https://github.com/displaynameishere/recon7)'s config parser and format, `7cfg`. This means you can use the same configuration file for both recon7 and ttiny- useful if you have many theming settings configured and would like to transfer them over.
+### Cursor support
+ttiny supports moving around with your mouse as well as scrolling through large files

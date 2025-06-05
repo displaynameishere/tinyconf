@@ -3,10 +3,9 @@ import argparse
 import os
 import sys
 import termios
-import tty
-from tinyconf_7cfg import Config
+from ttiny_7cfg import Config
 
-CONFIG_PATH = os.path.expanduser("~/.tinyconf")
+CONFIG_PATH = os.path.expanduser("~/.ttiny")
 
 def ensure_config_exists():
     if not os.path.exists(CONFIG_PATH):
@@ -28,7 +27,7 @@ def disable_flow_control():
         attrs[3] = attrs[3] & ~(termios.IXON | termios.IXOFF | termios.IXANY)
         termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
-class TinyconfEditor:
+class TtinyEditor:
     version = "0.1.1"
 
     def __init__(self, stdscr, filepath=None):
@@ -38,7 +37,7 @@ class TinyconfEditor:
         self.cursor_y = 0
         self.cursor_x = 0
         self.scroll_offset = 0
-        self.status = "EXEC MODE: type /q to quit, /s to save"
+        self.status = "EXEC MODE: type /q to quit, /s to save, // for literal slash"
         self.status_timer = 0
         self.unsaved = False
         self.command_mode = False
@@ -124,7 +123,7 @@ class TinyconfEditor:
         self.cursor_x += 1
         self.unsaved = True
         self.quit_confirm = False
-        self.status = "EXEC MODE: type /q to quit, /s to save"
+        self.status = "EXEC MODE: type /q to quit, /s to save, // for literal slash"
 
     def backspace(self):
         if self.cursor_x > 0:
@@ -139,7 +138,7 @@ class TinyconfEditor:
             self.cursor_y -= 1
         self.unsaved = True
         self.quit_confirm = False
-        self.status = "EXEC MODE: type /q to quit, /s to save"
+        self.status = "EXEC MODE: type /q to quit, /s to save, // for literal slash"
 
     def newline(self):
         line = self.buffer[self.cursor_y]
@@ -149,7 +148,7 @@ class TinyconfEditor:
         self.cursor_x = 0
         self.unsaved = True
         self.quit_confirm = False
-        self.status = "EXEC MODE: type /q to quit, /s to save"
+        self.status = "EXEC MODE: type /q to quit, /s to save, // for literal slash"
 
     def move_cursor(self, key):
         if key == curses.KEY_UP and self.cursor_y > 0:
@@ -218,7 +217,7 @@ class TinyconfEditor:
             if self.status_timer > 0:
                 self.status_timer -= 1
             if self.status_timer == 0:
-                self.status = "EXEC MODE: type /q to quit, /s to save"
+                self.status = "EXEC MODE: type /q to quit, /s to save, // for literal slash"
                 self.quit_confirm = False
             key = self.stdscr.getch()
             if self.command_mode:
@@ -252,24 +251,31 @@ class TinyconfEditor:
         if self.filepath and self.unsaved:
             self.save_file()
 
-def run_tinyconf():
+def run_ttiny():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", nargs="?", help="File to open")
     parser.add_argument("-v", "--version", action="store_true", help="Show version")
     args, unknown = parser.parse_known_args()
 
     if args.version:
-        print(TinyconfEditor.version)
+        print("""
+████████ ████████ ██ ███    ██ ██    ██ 
+   ██       ██    ██ ████   ██  ██  ██  
+   ██       ██    ██ ██ ██  ██   ████   
+   ██       ██    ██ ██  ██ ██    ██    
+   ██       ██    ██ ██   ████    ██    
+              """)
+        print("version", TtinyEditor.version)
         sys.exit(0)
 
     if unknown:
-        print(f"usage: tinyconf.py [-h] [-v] [file]\nUnrecognized argument(s): {unknown}")
+        print(f"usage: ttiny [-h] [-v] [file]\nUnrecognized argument(s): {unknown}")
         exit()
 
     ensure_config_exists()
     disable_flow_control()
 
-    curses.wrapper(lambda stdscr: TinyconfEditor(stdscr, filepath=args.file))
+    curses.wrapper(lambda stdscr: TtinyEditor(stdscr, filepath=args.file))
 
 if __name__ == "__main__":
-    run_tinyconf()
+    run_ttiny()
