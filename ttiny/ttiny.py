@@ -3,7 +3,7 @@ import argparse
 import os
 import sys
 import termios
-from ttiny_7cfg import Config
+from ttiny.ttiny_7cfg import Config
 
 CONFIG_PATH = os.path.expanduser("~/.ttiny")
 
@@ -28,7 +28,7 @@ def disable_flow_control():
         termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 class TtinyEditor:
-    version = "0.1.1"
+    version = "0.1.0"
 
     def __init__(self, stdscr, filepath=None):
         self.stdscr = stdscr
