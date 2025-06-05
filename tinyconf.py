@@ -2,49 +2,74 @@ import curses
 import argparse
 import os
 import sys
-import re
 import termios
 import tty
+from tinyconf_7cfg import Config
+
+CONFIG_PATH = os.path.expanduser("~/.tinyconf")
+
+def ensure_config_exists():
+    if not os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "w") as f:
+            f.write(
+                "theme:bg #000000\n"
+                "theme:fg #ffffff\n"
+                "theme:status #666666\n"
+            )
+
+def hex_to_rgb(hex_str):
+    hex_str = hex_str.lstrip('#')
+    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+
+def disable_flow_control():
+    if sys.stdin.isatty():
+        fd = sys.stdin.fileno()
+        attrs = termios.tcgetattr(fd)
+        attrs[3] = attrs[3] & ~(termios.IXON | termios.IXOFF | termios.IXANY)
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 class TinyconfEditor:
-    version = "0.1.0"
+    version = "0.1.1"
 
-    def __init__(self, stdscr, fg_rgb=(255, 255, 255), bg_rgb=(0, 0, 0), status_rgb=(100, 100, 100), filepath=None):
+    def __init__(self, stdscr, filepath=None):
         self.stdscr = stdscr
+        self.filepath = filepath
         self.buffer = [""]
         self.cursor_y = 0
         self.cursor_x = 0
         self.scroll_offset = 0
-        self.filepath = filepath
         self.status = "EXEC MODE: type /q to quit, /s to save"
         self.status_timer = 0
         self.unsaved = False
         self.command_mode = False
         self.command_input = ""
-        self.slash_prefix = False
 
-        if self.filepath and os.path.exists(self.filepath):
-            with open(self.filepath, 'r') as f:
+        if filepath and os.path.exists(filepath):
+            with open(filepath, 'r') as f:
                 self.buffer = f.read().splitlines() or [""]
 
-        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
-        curses.mouseinterval(0)
+        config = Config(CONFIG_PATH)
+        fg_rgb = hex_to_rgb(config.get("theme:fg") or "#ffffff")
+        bg_rgb = hex_to_rgb(config.get("theme:bg") or "#000000")
+        status_rgb = hex_to_rgb(config.get("theme:statusbar") or "#666666")
 
         curses.start_color()
         curses.use_default_colors()
         fg_code, bg_code, st_code = 250, 251, 252
+        to_1000 = lambda rgb: tuple(int((v / 255) * 1000) for v in rgb)
 
-        def rgb(c): return tuple(int((v / 255) * 1000) for v in c)
-
-        curses.init_color(fg_code, *rgb(fg_rgb))
-        curses.init_color(bg_code, *rgb(bg_rgb))
-        curses.init_color(st_code, *rgb(status_rgb))
+        curses.init_color(fg_code, *to_1000(fg_rgb))
+        curses.init_color(bg_code, *to_1000(bg_rgb))
+        curses.init_color(st_code, *to_1000(status_rgb))
 
         curses.init_pair(1, fg_code, bg_code)
         curses.init_pair(2, fg_code, st_code)
 
         self.color = curses.color_pair(1)
         self.status_color = curses.color_pair(2)
+
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        curses.mouseinterval(0)
 
         self.main()
 
@@ -59,12 +84,11 @@ class TinyconfEditor:
             self.scroll_offset = self.cursor_y
         elif self.cursor_y >= self.scroll_offset + visible_height:
             self.scroll_offset = self.cursor_y - visible_height + 1
-
-        for i in range(h):
-            try:
+        try:
+            for i in range(h):
                 self.stdscr.addstr(i, 0, " " * w, self.color)
-            except curses.error:
-                pass
+        except curses.error:
+            pass
 
         for i in range(visible_height):
             line_index = self.scroll_offset + i
@@ -72,25 +96,25 @@ class TinyconfEditor:
                 break
             line = self.buffer[line_index]
             line_num = f"{line_index + 1:4} "
-            try:
-                self.stdscr.addstr(i, 0, line_num, self.color)
-                self.stdscr.addstr(i, len(line_num), line[:w - len(line_num)], self.color)
-            except curses.error:
-                pass
+            self.stdscr.addstr(i, 0, line_num, self.color)
 
-        display_y = self.cursor_y - self.scroll_offset
-        self.cursor_x = min(self.cursor_x, len(self.buffer[self.cursor_y]))
+            if line_index == self.cursor_y:
+                cx = min(self.cursor_x, len(line))
+                before = line[:cx]
+                cur = line[cx:cx+1] or " "
+                after = line[cx+1:]
+
+                self.stdscr.addstr(i, 5, before, self.color)
+                self.stdscr.addstr(i, 5 + len(before), cur, self.color | curses.A_UNDERLINE)
+                self.stdscr.addstr(i, 5 + len(before) + 1, after, self.color)
+            else:
+                self.stdscr.addstr(i, 5, line[:w - 5], self.color)
+
         try:
-            self.stdscr.move(display_y, self.cursor_x + 5)
+            self.stdscr.addstr(h - 1, 0, ("/" + self.command_input if self.command_mode else self.status).ljust(w), self.status_color)
         except curses.error:
             pass
 
-        try:
-            status_line = f"/{self.command_input}" if self.command_mode else self.status
-            clipped_status = (status_line + " " * w)[:w]
-            self.stdscr.addstr(h - 1, 0, clipped_status, self.status_color)
-        except curses.error:
-            pass
         self.stdscr.refresh()
 
     def insert(self, ch):
@@ -176,20 +200,20 @@ class TinyconfEditor:
         return True
 
     def main(self):
-        curses.curs_set(1)
+        curses.curs_set(0)
         self.stdscr.keypad(True)
         while True:
             self.draw()
             if self.status_timer > 0:
                 self.status_timer -= 1
                 if self.status_timer == 0:
-                    self.status = "COMMAND MODE: type /q to quit, /s to save"
+                    self.status = "EXEC MODE: type /q to quit, /s to save"
             key = self.stdscr.getch()
             if self.command_mode:
-                if key in (10, 13):  # Enter
+                if key in (10, 13):
                     if not self.handle_command():
                         break
-                elif key in (27,):  # ESC
+                elif key == 27:
                     self.command_input = ""
                     self.command_mode = False
                 elif key in (curses.KEY_BACKSPACE, 127):
@@ -197,59 +221,43 @@ class TinyconfEditor:
                 elif 0 <= key < 256:
                     self.command_input += chr(key)
                 continue
-
             if key == ord("/"):
                 self.command_mode = True
                 self.command_input = ""
             elif key in (curses.KEY_BACKSPACE, 127):
                 self.backspace()
-            elif key == curses.KEY_ENTER or key == 10:
+            elif key in (10, curses.KEY_ENTER):
                 self.newline()
             elif key in (curses.KEY_UP, curses.KEY_DOWN, curses.KEY_LEFT, curses.KEY_RIGHT):
                 self.move_cursor(key)
             elif key == curses.KEY_MOUSE:
-                _, mx, my, _, bstate = curses.getmouse()
+                _, mx, my, _, _ = curses.getmouse()
                 if my < self.stdscr.getmaxyx()[0] - 1:
-                    line_idx = self.scroll_offset + my
-                    if 0 <= line_idx < len(self.buffer):
-                        self.cursor_y = line_idx
-                        self.cursor_x = max(0, min(mx - 5, len(self.buffer[self.cursor_y])))
+                    self.cursor_y = min(len(self.buffer) - 1, self.scroll_offset + my)
+                    self.cursor_x = max(0, min(mx - 5, len(self.buffer[self.cursor_y])))
             elif 0 <= key < 256:
                 self.insert(chr(key))
         if self.filepath and self.unsaved:
             self.save_file()
 
-def hex_to_rgb(hex_str):
-    if isinstance(hex_str, tuple):
-        return hex_str
-    hex_str = hex_str.lstrip('#')
-    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
-
-def disable_flow_control():
-    if sys.stdin.isatty():
-        fd = sys.stdin.fileno()
-        attrs = termios.tcgetattr(fd)
-        attrs[3] = attrs[3] & ~(termios.IXON | termios.IXOFF | termios.IXANY)
-        termios.tcsetattr(fd, termios.TCSANOW, attrs)
-
 def run_tinyconf():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", nargs="?", help="File to open")
     parser.add_argument("-v", "--version", action="store_true", help="Show version")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     if args.version:
         print(TinyconfEditor.version)
         sys.exit(0)
 
-    filepath = args.file
-    if filepath and not os.path.exists(filepath):
-        with open(filepath, 'w') as f:
-            f.write("")
+    if unknown:
+        print(f"usage: tinyconf.py [-h] [-v] [file]\nUnrecognized argument(s): {unknown}")
+        exit()
 
+    ensure_config_exists()
     disable_flow_control()
 
-    curses.wrapper(lambda stdscr: TinyconfEditor(stdscr, filepath=filepath))
+    curses.wrapper(lambda stdscr: TinyconfEditor(stdscr, filepath=args.file))
 
 if __name__ == "__main__":
     run_tinyconf()
