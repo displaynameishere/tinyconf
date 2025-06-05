@@ -43,6 +43,7 @@ class TinyconfEditor:
         self.unsaved = False
         self.command_mode = False
         self.command_input = ""
+        self.quit_confirm = False
 
         if filepath and os.path.exists(filepath):
             with open(filepath, 'r') as f:
@@ -122,6 +123,8 @@ class TinyconfEditor:
         self.buffer[self.cursor_y] = line[:self.cursor_x] + ch + line[self.cursor_x:]
         self.cursor_x += 1
         self.unsaved = True
+        self.quit_confirm = False
+        self.status = "EXEC MODE: type /q to quit, /s to save"
 
     def backspace(self):
         if self.cursor_x > 0:
@@ -135,6 +138,8 @@ class TinyconfEditor:
             self.buffer.pop(self.cursor_y)
             self.cursor_y -= 1
         self.unsaved = True
+        self.quit_confirm = False
+        self.status = "EXEC MODE: type /q to quit, /s to save"
 
     def newline(self):
         line = self.buffer[self.cursor_y]
@@ -143,6 +148,8 @@ class TinyconfEditor:
         self.cursor_y += 1
         self.cursor_x = 0
         self.unsaved = True
+        self.quit_confirm = False
+        self.status = "EXEC MODE: type /q to quit, /s to save"
 
     def move_cursor(self, key):
         if key == curses.KEY_UP and self.cursor_y > 0:
@@ -191,8 +198,12 @@ class TinyconfEditor:
         if cmd == "/":
             self.insert("/")
         elif cmd == "q":
-            if not self.unsaved or self.prompt_save():
-                return False
+            if self.unsaved and not self.quit_confirm:
+                self.quit_confirm = True
+                self.status = "Unsaved changes — type /q again to quit without saving"
+                self.status_timer = 30
+            else:
+                sys.exit(0)
         elif cmd == "s":
             self.save_file()
         self.command_input = ""
@@ -206,8 +217,9 @@ class TinyconfEditor:
             self.draw()
             if self.status_timer > 0:
                 self.status_timer -= 1
-                if self.status_timer == 0:
-                    self.status = "EXEC MODE: type /q to quit, /s to save"
+            if self.status_timer == 0:
+                self.status = "EXEC MODE: type /q to quit, /s to save"
+                self.quit_confirm = False
             key = self.stdscr.getch()
             if self.command_mode:
                 if key in (10, 13):
